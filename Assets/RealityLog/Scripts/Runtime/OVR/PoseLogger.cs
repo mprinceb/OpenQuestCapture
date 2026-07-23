@@ -18,9 +18,9 @@ namespace RealityLog.OVR
     {
         private static readonly string[] HEADER = new string[]
             {
-                "unix_time", "ovr_timestamp",
-                "pos_x", "pos_y", "pos_z", 
-                "rot_x", "rot_y", "rot_z", "rot_w", 
+                "unix_time", "ovr_timestamp", "mono_time_ns",
+                "pos_x", "pos_y", "pos_z",
+                "rot_x", "rot_y", "rot_z", "rot_w",
             };
 
         [SerializeField] private OVRPlugin.Node node = OVRPlugin.Node.Head;
@@ -133,7 +133,7 @@ namespace RealityLog.OVR
             }
 
             writer.EnqueueRow(
-                ConvertOvrSecToUnixTimeMs(timestamp), timestamp,
+                ConvertOvrSecToUnixTimeMs(timestamp), timestamp, MonotonicClock.Nanos(),
                 position.x, position.y, position.z,
                 orientation.x, orientation.y, orientation.z, orientation.w
             );

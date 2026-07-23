@@ -225,15 +225,17 @@ namespace RealityLog.OVR
 
             int jointCount = Mathf.Min(joints.Length, FULL_BODY_JOINT_COUNT);
 
-            // Build row: unix_time, ovr_timestamp, confidence, calibration_status, fidelity, then per-joint data
-            var row = new double[5 + jointCount * VALUES_PER_JOINT];
+            // Build row: unix_time, ovr_timestamp, mono_time_ns, confidence,
+            // calibration_status, fidelity, then per-joint data
+            var row = new double[6 + jointCount * VALUES_PER_JOINT];
             row[0] = ConvertOvrSecToUnixTimeMs(timestamp);
             row[1] = timestamp;
-            row[2] = bodyState.Confidence;
-            row[3] = (double)bodyState.CalibrationStatus;
-            row[4] = (double)bodyState.Fidelity;
+            row[2] = MonotonicClock.Nanos();
+            row[3] = bodyState.Confidence;
+            row[4] = (double)bodyState.CalibrationStatus;
+            row[5] = (double)bodyState.Fidelity;
 
-            int offset = 5;
+            int offset = 6;
             for (int i = 0; i < jointCount; i++)
             {
                 var joint = joints[i];
@@ -255,7 +257,7 @@ namespace RealityLog.OVR
         {
             var header = new List<string>
             {
-                "unix_time", "ovr_timestamp", "confidence", "calibration_status", "fidelity"
+                "unix_time", "ovr_timestamp", "mono_time_ns", "confidence", "calibration_status", "fidelity"
             };
 
             for (int i = 0; i < FULL_BODY_JOINT_COUNT; i++)

@@ -791,22 +791,11 @@ namespace RealityLog.Network
         // silently returned 0 on threadpool threads on Quest 3 (Horizon OS 79). The wrapper
         // calls into UnityEngine internals that aren't safe off-main-thread.
         //
-        // The reliable path is a `Stopwatch` started once on the main thread in `Awake`. It is
-        // backed by CLOCK_MONOTONIC on Linux/Android and is thread-safe to read. For Cristian's
-        // algorithm we only need a monotonic counter with consistent units; the epoch is
-        // irrelevant.
-        private static readonly System.Diagnostics.Stopwatch s_monoStopwatch
-            = System.Diagnostics.Stopwatch.StartNew();
-        private static readonly double s_nsPerTick
-            = System.Diagnostics.Stopwatch.Frequency > 0
-                ? 1_000_000_000.0 / System.Diagnostics.Stopwatch.Frequency
-                : 0.0;
-
-        private static long MonotonicNanos()
-        {
-            if (s_nsPerTick <= 0.0) return 0;
-            return (long)(s_monoStopwatch.ElapsedTicks * s_nsPerTick);
-        }
+        // The reliable path is a `Stopwatch` started once and thread-safe to read. It now lives
+        // in RealityLog.Common.MonotonicClock so the recording loggers stamp every row with the
+        // SAME counter this timesync endpoint measures — a host maps each sample to its own clock
+        // via host_time = mono_time_ns + measured_offset.
+        private static long MonotonicNanos() => MonotonicClock.Nanos();
 
         // ── Helpers ──
 

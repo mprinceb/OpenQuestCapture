@@ -18,7 +18,7 @@ namespace RealityLog.OVR
     {
         private static readonly string[] HEADER = new string[]
             {
-                "unix_time", "ovr_timestamp",
+                "unix_time", "ovr_timestamp", "mono_time_ns",
                 "linear_acc_x", "linear_acc_y", "linear_acc_z",
                 "gyro_x", "gyro_y", "gyro_z",
                 "vel_x", "vel_y", "vel_z",
@@ -173,7 +173,7 @@ namespace RealityLog.OVR
                     prevTimestamp = timestamp;
 
                     writer.EnqueueRow(
-                        ConvertOvrSecToUnixTimeMs(timestamp), timestamp,
+                        ConvertOvrSecToUnixTimeMs(timestamp), timestamp, MonotonicClock.Nanos(),
                         acc.x, acc.y, acc.z,
                         gyro.x, gyro.y, gyro.z,
                         vel.x, vel.y, vel.z,
