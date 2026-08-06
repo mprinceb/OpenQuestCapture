@@ -444,16 +444,29 @@ namespace RealityLog.Network
             return HttpResponse.Ok(json);
         }
 
-        // ── GET /api/recordings/:filename ──
+        // ── GET /api/recordings/:filename[?camera=left|right] ──
 
         private HttpResponse HandleStreamRecording(HttpRequest request)
         {
             var filename = request.PathParam;
-            var videoPath = FindVideoFile(filename);
+
+            // Default to the left stream so existing clients keep getting the same file.
+            var camera = "left";
+            if (request.QueryParams.TryGetValue("camera", out var requested) && !string.IsNullOrEmpty(requested))
+            {
+                camera = requested.ToLowerInvariant();
+            }
+
+            if (camera != "left" && camera != "right")
+            {
+                return HttpResponse.BadRequest($"Unknown camera '{camera}' — expected 'left' or 'right'");
+            }
+
+            var videoPath = FindVideoFile(filename, camera);
 
             if (videoPath == null || !File.Exists(videoPath))
             {
-                return HttpResponse.NotFound($"Recording not found: {filename}");
+                return HttpResponse.NotFound($"Recording not found: {filename} ({camera} camera)");
             }
 
             return HttpResponse.File(videoPath, "video/mp4");
@@ -799,12 +812,15 @@ namespace RealityLog.Network
 
         // ── Helpers ──
 
-        private string? FindVideoFile(string dirName)
+        // "left" keeps the historical center_camera.mp4 name; the right eye is recorded
+        // by a second VideoRecorderSurfaceProvider into right_camera.mp4.
+        private string? FindVideoFile(string dirName, string camera = "left")
         {
             var dirPath = Path.Combine(Application.persistentDataPath, dirName);
             if (!Directory.Exists(dirPath)) return null;
 
-            var videoPath = Path.Combine(dirPath, "center_camera.mp4");
+            var fileName = camera == "right" ? "right_camera.mp4" : "center_camera.mp4";
+            var videoPath = Path.Combine(dirPath, fileName);
             return File.Exists(videoPath) ? videoPath : null;
         }
 

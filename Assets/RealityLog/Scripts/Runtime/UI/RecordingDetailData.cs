@@ -80,6 +80,12 @@ namespace RealityLog.UI
             "video_metadata.json"
         };
 
+        // Secondary camera streams — listed only when that camera was recording
+        private static readonly string[] OptionalVideoFiles = new[]
+        {
+            "right_camera.mp4"
+        };
+
         // Known optional CSV files
         private static readonly string[] OptionalCsvFiles = new[]
         {
@@ -96,6 +102,7 @@ namespace RealityLog.UI
             "left_camera_characteristics.json",
             "right_camera_characteristics.json",
             "left_camera_image_format.json",
+            "right_camera_metadata.json",
             "episode_markers.json"
         };
 
@@ -146,6 +153,16 @@ namespace RealityLog.UI
             {
                 string filePath = Path.Combine(fullPath, fileName);
                 data.Files.Add(CheckFile(filePath, fileName, required: true));
+            }
+
+            // Check secondary camera streams
+            foreach (string fileName in OptionalVideoFiles)
+            {
+                string filePath = Path.Combine(fullPath, fileName);
+                if (File.Exists(filePath))
+                {
+                    data.Files.Add(CheckFile(filePath, fileName, required: false));
+                }
             }
 
             // Check optional CSV files
@@ -255,7 +272,7 @@ namespace RealityLog.UI
             var health = HealthLevel.Good;
             string issue = "";
 
-            if (fileName == "center_camera.mp4")
+            if (fileName.EndsWith(".mp4"))
             {
                 if (!exists || size < 1024)
                 {

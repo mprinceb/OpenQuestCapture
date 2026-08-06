@@ -20,6 +20,10 @@ namespace RealityLog.Camera
         [SerializeField] private string dataDirectoryName = string.Empty;
         [SerializeField] private string outputVideoFileName = "center_camera.mp4";
         [SerializeField] private string cameraMetaDataFileName = "center_camera_characteristics.json";
+        // Per-stream, so two providers recording in the same session (left + right eye)
+        // don't overwrite each other's start/stop stamps. The primary stream keeps the
+        // historical "video_metadata.json" name that the UI and HTTP listing read.
+        [SerializeField] private string videoMetadataFileName = "video_metadata.json";
         [SerializeField] private int targetFrameRate = 30;
         [SerializeField] private int targetBitrateMbps = 4;
         [SerializeField] private int iFrameIntervalSeconds = 1;
@@ -33,8 +37,6 @@ namespace RealityLog.Camera
         [SerializeField] private float recorderStartDelayAfterReopenSeconds = 0.25f;
         [SerializeField] private float maxWaitForCameraOpenSeconds = 1.5f;
 
-        private const string VIDEO_METADATA_FILE_NAME = "video_metadata.json";
-
         private AndroidJavaObject? currentInstance;
         private CameraMetadata? cameraMetadata;
         private bool isRecordingSessionActive;
@@ -42,6 +44,17 @@ namespace RealityLog.Camera
         private Coroutine? delayedStartCoroutine;
 
         public long VideoStartUnixTimeMs { get; private set; }
+
+        /// <summary>
+        /// Start of this stream on the shared monotonic clock (see
+        /// <see cref="MonotonicClock"/>). Written to the per-stream metadata so a host can
+        /// align this video against the pose/IMU rows and against the other camera stream
+        /// with the same host_time = mono_time_ns + measured_offset mapping the CSVs use.
+        /// </summary>
+        public long VideoStartMonoTimeNs { get; private set; }
+
+        /// <summary>File name this provider writes its MP4 to, within the session directory.</summary>
+        public string OutputVideoFileName => outputVideoFileName;
 
         /// <summary>
         /// True while the video file is still being finalized by the OS after stopRecording().
@@ -93,6 +106,7 @@ namespace RealityLog.Camera
         public override void PrepareRecordingSession()
         {
             VideoStartUnixTimeMs = 0;
+            VideoStartMonoTimeNs = 0;
 
             if (currentInstance == null)
             {
@@ -292,6 +306,7 @@ namespace RealityLog.Camera
             try
             {
                 VideoStartUnixTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                VideoStartMonoTimeNs = MonotonicClock.Nanos();
                 currentInstance.Call(START_RECORDING_METHOD_NAME);
                 isRecordingSessionActive = true;
             }
@@ -313,13 +328,16 @@ namespace RealityLog.Camera
             try
             {
                 var stopUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var stopMonoNs = MonotonicClock.Nanos();
                 var dataDirPath = Path.Join(Application.persistentDataPath, sessionDirName);
                 Directory.CreateDirectory(dataDirPath);
-                var metadataPath = Path.Join(dataDirPath, VIDEO_METADATA_FILE_NAME);
+                var metadataPath = Path.Join(dataDirPath, videoMetadataFileName);
 
                 var json = $"{{\n" +
                     $"  \"recording_start_unix_ms\": {VideoStartUnixTimeMs},\n" +
                     $"  \"recording_stop_unix_ms\": {stopUnixMs},\n" +
+                    $"  \"recording_start_mono_ns\": {VideoStartMonoTimeNs},\n" +
+                    $"  \"recording_stop_mono_ns\": {stopMonoNs},\n" +
                     $"  \"configured_fps\": {targetFrameRate},\n" +
                     $"  \"video_file\": \"{outputVideoFileName}\",\n" +
                     $"  \"audio_enabled\": {(enableAudio ? "true" : "false")},\n" +

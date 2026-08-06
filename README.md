@@ -24,10 +24,10 @@ Huge thanks to the original author for their excellent work in making Quest sens
 `OpenQuestCapture` is a Unity-based data logging tool for Meta Quest 3 focused on long-duration robotics data collection.  
 The default capture pipeline now records:
 
-* one compressed passthrough camera video (`.mp4`, left camera stream)
+* both compressed passthrough camera videos (`.mp4`, left and right camera streams)
 * synchronized pose logs (`hmd_poses.csv`, controller poses)
 * synchronized IMU logs (`imu.csv`)
-* camera characteristics JSON
+* camera characteristics JSON (one per stream)
 
 Depth capture and dual raw-YUV capture are disabled by default to reduce storage pressure for multi-hour recording shifts.
 
@@ -38,8 +38,8 @@ Depth capture and dual raw-YUV capture are disabled by default to reduce storage
 ## ✅ Features
 
 * Records HMD/controller poses and IMU data (session-based)
-* Captures one compressed passthrough camera stream to `center_camera.mp4`
-* Logs Camera2 characteristics for the selected camera stream
+* Captures both compressed passthrough camera streams, to `center_camera.mp4` (left) and `right_camera.mp4` (right)
+* Logs Camera2 characteristics for each camera stream
 * Uses timestamped session directories for long-run collection
 * Keeps recording menu export/delete flows for storage management
 
@@ -52,7 +52,7 @@ Depth capture and dual raw-YUV capture are disabled by default to reduce storage
 4. **Stop recording**: To stop, press the left controller's Menu button again.
 5. **Move the data from your Quest to your computer**: The data is stored on the Quest's internal storage. You can move it to your computer using a USB cable by connecting the Quest to your computer and using Windows File Explorer. The data is stored in the `/Quest 3/Internal Shared Storage/data/com.samusynth.OpenQuestCapture/files` directory.
 Or, you can use press the Y button on the left controller to toggle the Recording Menu. Select "Export Data" to export the data to a zip file in the Quest 3 Download folder which can be uploaded to Google Drive or other cloud storage services.
-6. **Post-process on laptop**: Combine `center_camera.mp4` + pose/IMU CSV files into your downstream format (for example, MCAP/Foxglove pipelines).
+6. **Post-process on laptop**: Combine `center_camera.mp4` / `right_camera.mp4` + pose/IMU CSV files into your downstream format (for example, MCAP/Foxglove pipelines).
 
 ### 📸 How to take a good capture
 
@@ -79,6 +79,11 @@ Example structure:
 └── YYYYMMDD_hhmmss/
     ├── center_camera.mp4
     ├── left_camera_characteristics.json
+    ├── video_metadata.json
+    │
+    ├── right_camera.mp4
+    ├── right_camera_characteristics.json
+    ├── right_camera_metadata.json
     │
     ├── hmd_poses.csv
     ├── left_controller_poses.csv
@@ -96,7 +101,7 @@ Example structure:
 * Format:
 
   ```
-  unix_time,ovr_timestamp,pos_x,pos_y,pos_z,rot_x,rot_y,rot_z,rot_w
+  unix_time,ovr_timestamp,mono_time_ns,pos_x,pos_y,pos_z,rot_x,rot_y,rot_z,rot_w
   ```
 
 ### Camera Characteristics (JSON)
@@ -106,9 +111,31 @@ Example structure:
 
 ### Camera Video (MP4)
 
-* File: `center_camera.mp4`
+* Files: `center_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
+* Audio is recorded on the left stream only — Android allows one microphone capture per process
 * Intended for long-duration collection where storage efficiency is critical
+
+Each stream writes its own sidecar metadata — `video_metadata.json` for the left stream,
+`right_camera_metadata.json` for the right — holding that stream's start/stop stamps:
+
+```json
+{
+  "recording_start_unix_ms": 1753267694123,
+  "recording_stop_unix_ms": 1753267754456,
+  "recording_start_mono_ns": 84213000000,
+  "recording_stop_mono_ns": 144546000000,
+  "configured_fps": 30,
+  "video_file": "right_camera.mp4",
+  "audio_enabled": false,
+  "audio_bitrate": 128000,
+  "audio_sampling_rate": 44100
+}
+```
+
+`recording_start_mono_ns` is on the same monotonic clock as the CSVs' `mono_time_ns` column
+and the `POST /api/timesync/ping` endpoint, so the two videos and every logged sample map
+onto a host clock with `host_time = mono_time_ns + measured_offset`.
 
 ---
 

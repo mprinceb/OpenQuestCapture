@@ -6932,13 +6932,14 @@ GameObject:
   - component: {fileID: 800648182}
   - component: {fileID: 800648184}
   - component: {fileID: 800648183}
+  - component: {fileID: 800648185}
   m_Layer: 0
   m_Name: RightCamera
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 2147483647
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &800648182
 Transform:
   m_ObjectHideFlags: 0
@@ -6961,7 +6962,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 800648181}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d437d29942d291941a15449b424bfd2f, type: 3}
   m_Name: 
@@ -6986,9 +6987,34 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cameraPermissionManager: {fileID: 1942360064}
   surfaceProviders:
-  - {fileID: 800648183}
+  - {fileID: 800648185}
   cameraPosition: 1
-  useCase: 1
+  useCase: 2
+--- !u!114 &800648185
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 800648181}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56b7843afc4c4ad3810bdeebfe923bdb, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  dataDirectoryName:
+  outputVideoFileName: right_camera.mp4
+  cameraMetaDataFileName: right_camera_characteristics.json
+  videoMetadataFileName: right_camera_metadata.json
+  targetFrameRate: 30
+  targetBitrateMbps: 4
+  iFrameIntervalSeconds: 1
+  maxResolutionHeight: 720
+  useHevc: 1
+  enableAudio: 0
+  audioBitrate: 128000
+  audioSamplingRate: 44100
+  cameraSessionManager: {fileID: 800648184}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -7298,11 +7324,15 @@ MonoBehaviour:
   dataDirectoryName: 
   outputVideoFileName: center_camera.mp4
   cameraMetaDataFileName: left_camera_characteristics.json
+  videoMetadataFileName: video_metadata.json
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1
   maxResolutionHeight: 720
   useHevc: 1
+  enableAudio: 1
+  audioBitrate: 128000
+  audioSamplingRate: 44100
   cameraSessionManager: {fileID: 918867451}
 --- !u!114 &918867451
 MonoBehaviour:
@@ -7563,6 +7593,7 @@ MonoBehaviour:
   depthMapExporter: {fileID: 138327926}
   cameraProviders:
   - {fileID: 918867450}
+  - {fileID: 800648185}
   poseLoggers:
   - {fileID: 692325389}
   - {fileID: 543200301}

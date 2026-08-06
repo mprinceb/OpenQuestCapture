@@ -464,6 +464,10 @@ namespace RealityLog
 
         private void WriteVideoStartTime()
         {
+            // Back-compat anchor for the primary stream (the first video provider in
+            // `cameraProviders`). Per-stream start/stop stamps — including the monotonic
+            // ones used for cross-stream alignment — live in each provider's own metadata
+            // JSON, which is the file to read when more than one camera is recording.
             long videoStartMs = 0;
             foreach (var provider in cameraProviders)
             {
@@ -502,9 +506,27 @@ namespace RealityLog
             try
             {
                 var sessionDir = Path.Join(Application.persistentDataPath, sessionDirectoryName);
-                var videoPath = Path.Join(sessionDir, "center_camera.mp4");
 
-                var videoOk = File.Exists(videoPath) && new FileInfo(videoPath).Length >= MinExpectedVideoBytes;
+                // Every video provider in the session must have produced a usable file —
+                // with more than one camera stream recording, a single healthy MP4 is not
+                // enough to call the session good.
+                var videoOk = true;
+                var videoReport = string.Empty;
+                foreach (var provider in cameraProviders)
+                {
+                    if (provider is VideoRecorderSurfaceProvider videoProvider)
+                    {
+                        var videoPath = Path.Join(sessionDir, videoProvider.OutputVideoFileName);
+                        var videoBytes = File.Exists(videoPath) ? new FileInfo(videoPath).Length : 0L;
+                        if (videoBytes < MinExpectedVideoBytes)
+                        {
+                            videoOk = false;
+                        }
+
+                        videoReport += $" {videoProvider.OutputVideoFileName}={videoBytes}B";
+                    }
+                }
+
                 var motionOk = false;
                 foreach (var fileName in MotionFileNames)
                 {
@@ -526,10 +548,9 @@ namespace RealityLog
                     return;
                 }
 
-                var videoBytes = File.Exists(videoPath) ? new FileInfo(videoPath).Length : 0L;
                 Debug.LogWarning(
                     $"[{Constants.LOG_TAG}] RecordingManager: Session integrity warning for '{sessionDirectoryName}'. " +
-                    $"video_bytes={videoBytes}, has_motion_stream={motionOk}"
+                    $"videos:{videoReport}, has_motion_stream={motionOk}"
                 );
             }
             catch (Exception ex)
