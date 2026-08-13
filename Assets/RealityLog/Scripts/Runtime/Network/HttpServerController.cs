@@ -812,14 +812,13 @@ namespace RealityLog.Network
 
         // ── Helpers ──
 
-        // "left" keeps the historical center_camera.mp4 name; the right eye is recorded
-        // by a second VideoRecorderSurfaceProvider into right_camera.mp4.
+        // Each eye uses a side-labeled output filename.
         private string? FindVideoFile(string dirName, string camera = "left")
         {
             var dirPath = Path.Combine(Application.persistentDataPath, dirName);
             if (!Directory.Exists(dirPath)) return null;
 
-            var fileName = camera == "right" ? "right_camera.mp4" : "center_camera.mp4";
+            var fileName = camera == "right" ? "right_camera.mp4" : "left_camera.mp4";
             var videoPath = Path.Combine(dirPath, fileName);
             return File.Exists(videoPath) ? videoPath : null;
         }
@@ -862,8 +861,8 @@ namespace RealityLog.Network
                         try { sizeBytes += new FileInfo(f).Length; } catch { }
                     }
 
-                    // Parse duration from video_metadata.json
-                    var metadataPath = Path.Combine(fullPath, "video_metadata.json");
+                    // Parse duration from the left camera metadata sidecar.
+                    var metadataPath = Path.Combine(fullPath, "left_camera_metadata.json");
                     if (File.Exists(metadataPath))
                     {
                         var json = File.ReadAllText(metadataPath);

@@ -18,12 +18,11 @@ namespace RealityLog.Camera
         private const string CLOSE_METHOD_NAME = "close";
 
         [SerializeField] private string dataDirectoryName = string.Empty;
-        [SerializeField] private string outputVideoFileName = "center_camera.mp4";
-        [SerializeField] private string cameraMetaDataFileName = "center_camera_characteristics.json";
+        [SerializeField] private string outputVideoFileName = "left_camera.mp4";
+        [SerializeField] private string cameraMetaDataFileName = "left_camera_characteristics.json";
         // Per-stream, so two providers recording in the same session (left + right eye)
         // don't overwrite each other's start/stop stamps. The primary stream keeps the
-        // historical "video_metadata.json" name that the UI and HTTP listing read.
-        [SerializeField] private string videoMetadataFileName = "video_metadata.json";
+        [SerializeField] private string videoMetadataFileName = "left_camera_metadata.json";
         [SerializeField] private int targetFrameRate = 30;
         [SerializeField] private int targetBitrateMbps = 4;
         [SerializeField] private int iFrameIntervalSeconds = 1;

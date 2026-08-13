@@ -6989,7 +6989,7 @@ MonoBehaviour:
   surfaceProviders:
   - {fileID: 800648185}
   cameraPosition: 1
-  useCase: 2
+  useCase: 3
 --- !u!114 &800648185
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7322,9 +7322,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   dataDirectoryName: 
-  outputVideoFileName: center_camera.mp4
+  outputVideoFileName: left_camera.mp4
   cameraMetaDataFileName: left_camera_characteristics.json
-  videoMetadataFileName: video_metadata.json
+  videoMetadataFileName: left_camera_metadata.json
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1
@@ -7350,7 +7350,7 @@ MonoBehaviour:
   surfaceProviders:
   - {fileID: 918867450}
   cameraPosition: 0
-  useCase: 2
+  useCase: 3
 --- !u!1 &990090417
 GameObject:
   m_ObjectHideFlags: 0

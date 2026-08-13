@@ -38,7 +38,7 @@ Depth capture and dual raw-YUV capture are disabled by default to reduce storage
 ## ✅ Features
 
 * Records HMD/controller poses and IMU data (session-based)
-* Captures both compressed passthrough camera streams, to `center_camera.mp4` (left) and `right_camera.mp4` (right)
+* Captures both compressed passthrough camera streams, to `left_camera.mp4` and `right_camera.mp4`
 * Logs Camera2 characteristics for each camera stream
 * Uses timestamped session directories for long-run collection
 * Keeps recording menu export/delete flows for storage management
@@ -52,7 +52,7 @@ Depth capture and dual raw-YUV capture are disabled by default to reduce storage
 4. **Stop recording**: To stop, press the left controller's Menu button again.
 5. **Move the data from your Quest to your computer**: The data is stored on the Quest's internal storage. You can move it to your computer using a USB cable by connecting the Quest to your computer and using Windows File Explorer. The data is stored in the `/Quest 3/Internal Shared Storage/data/com.samusynth.OpenQuestCapture/files` directory.
 Or, you can use press the Y button on the left controller to toggle the Recording Menu. Select "Export Data" to export the data to a zip file in the Quest 3 Download folder which can be uploaded to Google Drive or other cloud storage services.
-6. **Post-process on laptop**: Combine `center_camera.mp4` / `right_camera.mp4` + pose/IMU CSV files into your downstream format (for example, MCAP/Foxglove pipelines).
+6. **Post-process on laptop**: Combine `left_camera.mp4` / `right_camera.mp4` + pose/IMU CSV files into your downstream format (for example, MCAP/Foxglove pipelines).
 
 ### 📸 How to take a good capture
 
@@ -77,9 +77,9 @@ Example structure:
 ```
 /sdcard/Android/data/com.samusynth.OpenQuestCapture/files
 └── YYYYMMDD_hhmmss/
-    ├── center_camera.mp4
+    ├── left_camera.mp4
     ├── left_camera_characteristics.json
-    ├── video_metadata.json
+    ├── left_camera_metadata.json
     │
     ├── right_camera.mp4
     ├── right_camera_characteristics.json
@@ -111,12 +111,12 @@ Example structure:
 
 ### Camera Video (MP4)
 
-* Files: `center_camera.mp4` (left camera), `right_camera.mp4` (right camera)
+* Files: `left_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
 * Audio is recorded on the left stream only — Android allows one microphone capture per process
 * Intended for long-duration collection where storage efficiency is critical
 
-Each stream writes its own sidecar metadata — `video_metadata.json` for the left stream,
+Each stream writes its own sidecar metadata — `left_camera_metadata.json` for the left stream,
 `right_camera_metadata.json` for the right — holding that stream's start/stop stamps:
 
 ```json

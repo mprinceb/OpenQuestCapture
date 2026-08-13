@@ -155,7 +155,7 @@ namespace RealityLog.UI
 
         private void BuildVideoPreview(RecordingDetailData data)
         {
-            string videoPath = Path.Combine(data.DirectoryPath, "center_camera.mp4");
+            string videoPath = Path.Combine(data.DirectoryPath, "left_camera.mp4");
             if (!File.Exists(videoPath)) return;
 
             var section = CreateSection("VideoPreview");

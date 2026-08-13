@@ -75,9 +75,9 @@ namespace RealityLog.UI
         // Known required files
         private static readonly string[] RequiredFiles = new[]
         {
-            "center_camera.mp4",
+            "left_camera.mp4",
             "hmd_poses.csv",
-            "video_metadata.json"
+            "left_camera_metadata.json"
         };
 
         // Secondary camera streams — listed only when that camera was recording
@@ -129,7 +129,7 @@ namespace RealityLog.UI
             var data = new RecordingDetailData { DirectoryPath = fullPath };
 
             // Parse video metadata for duration
-            string metadataPath = Path.Combine(fullPath, "video_metadata.json");
+            string metadataPath = Path.Combine(fullPath, "left_camera_metadata.json");
             if (File.Exists(metadataPath))
             {
                 try
@@ -144,7 +144,7 @@ namespace RealityLog.UI
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[RealityLog] RecordingDetailData: Failed to parse video_metadata.json: {e.Message}");
+                    Debug.LogWarning($"[RealityLog] RecordingDetailData: Failed to parse left_camera_metadata.json: {e.Message}");
                 }
             }
 
@@ -301,7 +301,7 @@ namespace RealityLog.UI
                     issue = "CSV file is empty";
                 }
             }
-            else if (fileName == "video_metadata.json")
+            else if (fileName == "left_camera_metadata.json")
             {
                 if (!exists)
                 {

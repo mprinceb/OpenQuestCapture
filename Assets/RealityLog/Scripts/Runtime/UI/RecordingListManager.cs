@@ -201,7 +201,7 @@ namespace RealityLog.UI
         private static HealthLevel QuickHealthCheck(string dirPath)
         {
             // Check video exists and has reasonable size
-            string videoPath = Path.Combine(dirPath, "center_camera.mp4");
+            string videoPath = Path.Combine(dirPath, "left_camera.mp4");
             bool videoOk = File.Exists(videoPath);
             long videoSize = 0;
             if (videoOk)
@@ -243,7 +243,7 @@ namespace RealityLog.UI
 
         private static double QuickParseDuration(string dirPath)
         {
-            string metadataPath = Path.Combine(dirPath, "video_metadata.json");
+            string metadataPath = Path.Combine(dirPath, "left_camera_metadata.json");
             if (!File.Exists(metadataPath))
                 return -1;
 
@@ -294,4 +294,3 @@ namespace RealityLog.UI
         }
     }
 }
-
