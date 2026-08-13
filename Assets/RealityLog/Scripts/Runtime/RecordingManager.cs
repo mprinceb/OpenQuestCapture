@@ -357,7 +357,7 @@ namespace RealityLog
             // Safety: ensure recording stops on cleanup.
             // Can't rely on the coroutine here since Unity is tearing down the
             // MonoBehaviour — do a synchronous stop and validate immediately.
-            // MediaRecorder.stop() is already synchronous, and the bg poll is
+            // Native encoder stop/finalization is synchronous, and the bg poll is
             // just a verification safety net, so skipping it on destroy is fine.
             recordingPauseStartTime = null; // Clear any pending grace period on destroy.
 

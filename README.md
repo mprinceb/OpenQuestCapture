@@ -113,7 +113,7 @@ Example structure:
 
 * Files: `left_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
-* Audio is recorded on the left stream only — Android allows one microphone capture per process
+* Camera videos are intentionally video-only. A MediaCodec/EGL frame-pacing path samples the latest camera texture onto a constant 30 FPS presentation timeline.
 * Intended for long-duration collection where storage efficiency is critical
 
 Each stream writes its own sidecar metadata — `left_camera_metadata.json` for the left stream,

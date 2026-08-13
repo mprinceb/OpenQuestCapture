@@ -29,7 +29,7 @@ namespace RealityLog.Camera
         [SerializeField] private int maxResolutionHeight = 720;
         [SerializeField] private bool useHevc = true;
         [Header("Audio")]
-        [SerializeField] private bool enableAudio = true;
+        [SerializeField] private bool enableAudio = false;
         [SerializeField] private int audioBitrate = 128000;
         [SerializeField] private int audioSamplingRate = 44100;
         [SerializeField] private CameraSessionManager? cameraSessionManager = default!;
@@ -117,8 +117,11 @@ namespace RealityLog.Camera
             {
                 currentInstance.Call(UPDATE_OUTPUT_FILE_METHOD_NAME, outputFilePath);
                 WriteCameraMetadataFile();
-                waitingForCameraReopen = true;
-                cameraSessionManager?.ReopenSession();
+                // The native MediaCodec pipeline keeps a persistent Camera2-facing
+                // SurfaceTexture, so changing the MP4 output no longer requires a
+                // camera close/reopen. Codec setup happens here, before timestamps
+                // are captured by StartRecordingNow().
+                waitingForCameraReopen = false;
                 Debug.Log($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider prepared output: {outputFilePath}");
             }
             catch (Exception ex)
@@ -189,26 +192,11 @@ namespace RealityLog.Camera
             WriteVideoMetadata(sessionDirName);
 
             // CRITICAL: Reset dataDirectoryName immediately after stop so that any
-            // future camera reinit (app resume, session reopen) cannot create a new
-            // native MediaRecorder pointing at this completed session's video file.
-            // The native constructor truncates the output file, which would overwrite
-            // a valid recording with 0 bytes.
+            // future camera reinit (app resume, session reopen) cannot start a new
+            // native encoder pointing at this completed session's video file.
             // With dataDirectoryName empty, GetJavaInstance() -> BuildVideoOutputPath()
             // resolves to the root files directory, which is safe to truncate.
             dataDirectoryName = string.Empty;
-
-            // Also redirect the live native instance away from the saved session path.
-            // This protects against the native layer touching the file during camera
-            // session close/reopen before the instance is fully recreated.
-            try
-            {
-                var safePath = BuildVideoOutputPath(); // Now resolves to root (empty dataDirectoryName)
-                currentInstance.Call(UPDATE_OUTPUT_FILE_METHOD_NAME, safePath);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: Failed to redirect output after stop: {ex.Message}");
-            }
 
             if (stopSucceeded)
             {
@@ -219,7 +207,7 @@ namespace RealityLog.Camera
 
         /// <summary>
         /// Runs on a background thread. Polls the video file size until it stabilizes
-        /// at >0 bytes, meaning Android's MediaRecorder has finished flushing the MP4.
+        /// at >0 bytes, meaning Android's MediaMuxer has finished flushing the MP4.
         /// </summary>
         private void PollVideoFinalization(string videoPath)
         {
