@@ -7006,6 +7006,7 @@ MonoBehaviour:
   outputVideoFileName: right_camera.mp4
   cameraMetaDataFileName: right_camera_characteristics.json
   videoMetadataFileName: right_camera_metadata.json
+  frameTimestampsFileName: right_camera_timestamps.csv
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1
@@ -7325,6 +7326,7 @@ MonoBehaviour:
   outputVideoFileName: left_camera.mp4
   cameraMetaDataFileName: left_camera_characteristics.json
   videoMetadataFileName: left_camera_metadata.json
+  frameTimestampsFileName: left_camera_timestamps.csv
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1

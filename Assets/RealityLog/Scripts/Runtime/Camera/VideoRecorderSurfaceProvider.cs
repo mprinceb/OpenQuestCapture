@@ -23,6 +23,7 @@ namespace RealityLog.Camera
         // Per-stream, so two providers recording in the same session (left + right eye)
         // don't overwrite each other's start/stop stamps. The primary stream keeps the
         [SerializeField] private string videoMetadataFileName = "left_camera_metadata.json";
+        [SerializeField] private string frameTimestampsFileName = "left_camera_timestamps.csv";
         [SerializeField] private int targetFrameRate = 30;
         [SerializeField] private int targetBitrateMbps = 4;
         [SerializeField] private int iFrameIntervalSeconds = 1;
@@ -55,6 +56,9 @@ namespace RealityLog.Camera
         /// <summary>File name this provider writes its MP4 to, within the session directory.</summary>
         public string OutputVideoFileName => outputVideoFileName;
 
+        /// <summary>Per-encoded-frame Camera2 exposure timestamp sidecar.</summary>
+        public string FrameTimestampsFileName => frameTimestampsFileName;
+
         /// <summary>
         /// True while the video file is still being finalized by the OS after stopRecording().
         /// RecordingManager should wait for this to become false before validating files.
@@ -70,6 +74,7 @@ namespace RealityLog.Camera
 
             var size = metadata.sensor.pixelArraySize;
             var outputFilePath = BuildVideoOutputPath();
+            var frameTimestampFilePath = BuildFrameTimestampOutputPath();
 
             try
             {
@@ -78,6 +83,7 @@ namespace RealityLog.Camera
                     size.width,
                     size.height,
                     outputFilePath,
+                    frameTimestampFilePath,
                     targetFrameRate,
                     targetBitrateMbps,
                     iFrameIntervalSeconds,
@@ -113,9 +119,14 @@ namespace RealityLog.Camera
             }
 
             var outputFilePath = BuildVideoOutputPath();
+            var frameTimestampFilePath = BuildFrameTimestampOutputPath();
             try
             {
-                currentInstance.Call(UPDATE_OUTPUT_FILE_METHOD_NAME, outputFilePath);
+                currentInstance.Call(
+                    UPDATE_OUTPUT_FILE_METHOD_NAME,
+                    outputFilePath,
+                    frameTimestampFilePath
+                );
                 WriteCameraMetadataFile();
                 // The native MediaCodec pipeline keeps a persistent Camera2-facing
                 // SurfaceTexture, so changing the MP4 output no longer requires a
@@ -310,6 +321,13 @@ namespace RealityLog.Camera
             return Path.Join(dataDirPath, outputVideoFileName);
         }
 
+        private string BuildFrameTimestampOutputPath()
+        {
+            var dataDirPath = Path.Join(Application.persistentDataPath, dataDirectoryName);
+            Directory.CreateDirectory(dataDirPath);
+            return Path.Join(dataDirPath, frameTimestampsFileName);
+        }
+
         private void WriteVideoMetadata(string sessionDirName)
         {
             try
@@ -319,14 +337,21 @@ namespace RealityLog.Camera
                 var dataDirPath = Path.Join(Application.persistentDataPath, sessionDirName);
                 Directory.CreateDirectory(dataDirPath);
                 var metadataPath = Path.Join(dataDirPath, videoMetadataFileName);
+                var timestampSource = cameraMetadata?.sensor?.timestampSource ?? "UNKNOWN";
 
                 var json = $"{{\n" +
+                    $"  \"capture_contract_version\": \"1.3.0\",\n" +
                     $"  \"recording_start_unix_ms\": {VideoStartUnixTimeMs},\n" +
                     $"  \"recording_stop_unix_ms\": {stopUnixMs},\n" +
                     $"  \"recording_start_mono_ns\": {VideoStartMonoTimeNs},\n" +
                     $"  \"recording_stop_mono_ns\": {stopMonoNs},\n" +
                     $"  \"configured_fps\": {targetFrameRate},\n" +
-                    $"  \"video_file\": \"{outputVideoFileName}\",\n" +
+                    $"  \"gop_frames\": {targetFrameRate * iFrameIntervalSeconds},\n" +
+                    $"  \"video_file\": \"{EscapeJson(outputVideoFileName)}\",\n" +
+                    $"  \"frame_timestamps_file\": \"{EscapeJson(frameTimestampsFileName)}\",\n" +
+                    $"  \"frame_timestamps_schema\": \"openquest.camera_frame_timestamps/v1\",\n" +
+                    $"  \"frame_timestamp_semantics\": \"sensor_exposure_start\",\n" +
+                    $"  \"sensor_timestamp_source\": \"{EscapeJson(timestampSource)}\",\n" +
                     $"  \"audio_enabled\": {(enableAudio ? "true" : "false")},\n" +
                     $"  \"audio_bitrate\": {audioBitrate},\n" +
                     $"  \"audio_sampling_rate\": {audioSamplingRate}\n" +
@@ -338,6 +363,15 @@ namespace RealityLog.Camera
             {
                 Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider - Failed to write video metadata: {ex.Message}");
             }
+        }
+
+        private static string EscapeJson(string value)
+        {
+            return value
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n");
         }
 
         private void WriteCameraMetadataFile()

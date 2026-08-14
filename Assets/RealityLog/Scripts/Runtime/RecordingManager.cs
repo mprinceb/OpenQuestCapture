@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.Events;
@@ -54,6 +55,10 @@ namespace RealityLog
         private string? currentSessionDirectory = null;
         private Coroutine? stopCoroutine;
         private const long MinExpectedVideoBytes = 1024;
+        private const long MinExpectedTimestampBytes = 128;
+        private const string TrackingOriginFileName = "tracking_origin.json";
+        private TrackingOriginSession? trackingOriginSession;
+        private bool recenterEventSubscribed;
 
         // Grace period: don't stop recording on a brief OS pause (proximity sensor misfire,
         // system overlay, Guardian boundary glitch). Only stop if the pause lasts longer than
@@ -220,6 +225,7 @@ namespace RealityLog
 
             isRecording = true;
             recordingStartTime = Time.time;
+            StartTrackingOriginRecord();
 
             // Hide the standby label (green instruction box) regardless of how recording was started
             infoCanvasAnimator?.SetBool(IsRunningParam, true);
@@ -277,6 +283,8 @@ namespace RealityLog
 
             // Store directory name before resetting state
             string savedDirectory = currentSessionDirectory ?? string.Empty;
+
+            WriteTrackingOriginRecord(savedDirectory);
 
             isRecording = false;
             recordingStartTime = 0f;
@@ -380,6 +388,7 @@ namespace RealityLog
                     logger.StopLogging();
 
                 string savedDirectory = currentSessionDirectory ?? string.Empty;
+                WriteTrackingOriginRecord(savedDirectory);
                 isRecording = false;
                 recordingStartTime = 0f;
                 currentSessionDirectory = null;
@@ -517,15 +526,32 @@ namespace RealityLog
                     if (provider is VideoRecorderSurfaceProvider videoProvider)
                     {
                         var videoPath = Path.Join(sessionDir, videoProvider.OutputVideoFileName);
+                        var timestampPath = Path.Join(
+                            sessionDir,
+                            videoProvider.FrameTimestampsFileName
+                        );
                         var videoBytes = File.Exists(videoPath) ? new FileInfo(videoPath).Length : 0L;
-                        if (videoBytes < MinExpectedVideoBytes)
+                        var timestampBytes = File.Exists(timestampPath)
+                            ? new FileInfo(timestampPath).Length
+                            : 0L;
+                        if (
+                            videoBytes < MinExpectedVideoBytes
+                            || timestampBytes < MinExpectedTimestampBytes
+                        )
                         {
                             videoOk = false;
                         }
 
-                        videoReport += $" {videoProvider.OutputVideoFileName}={videoBytes}B";
+                        videoReport +=
+                            $" {videoProvider.OutputVideoFileName}={videoBytes}B" +
+                            $" {videoProvider.FrameTimestampsFileName}={timestampBytes}B";
                     }
                 }
+
+                var trackingOriginPath = Path.Join(sessionDir, TrackingOriginFileName);
+                var trackingOriginOk =
+                    File.Exists(trackingOriginPath)
+                    && new FileInfo(trackingOriginPath).Length > 0;
 
                 var motionOk = false;
                 foreach (var fileName in MotionFileNames)
@@ -543,20 +569,156 @@ namespace RealityLog
                     }
                 }
 
-                if (videoOk && motionOk)
+                if (videoOk && motionOk && trackingOriginOk)
                 {
                     return;
                 }
 
                 Debug.LogWarning(
                     $"[{Constants.LOG_TAG}] RecordingManager: Session integrity warning for '{sessionDirectoryName}'. " +
-                    $"videos:{videoReport}, has_motion_stream={motionOk}"
+                    $"videos:{videoReport}, has_motion_stream={motionOk}, " +
+                    $"has_tracking_origin={trackingOriginOk}"
                 );
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[{Constants.LOG_TAG}] RecordingManager: Failed to validate session '{sessionDirectoryName}': {ex.Message}");
             }
+        }
+
+        private void StartTrackingOriginRecord()
+        {
+            TrySubscribeToRecenterEvents();
+            var manager = OVRManager.instance;
+            var runtimeOrigin = OVRPlugin.GetTrackingOriginType().ToString();
+            trackingOriginSession = new TrackingOriginSession
+            {
+                schema = "openquest.tracking_origin/v1",
+                configured_origin = manager != null
+                    ? manager.trackingOriginType.ToString()
+                    : "Unknown",
+                runtime_origin_at_start = runtimeOrigin,
+                runtime_origin_at_stop = runtimeOrigin,
+                allow_recenter = manager != null && manager.AllowRecenter,
+                floor_height_reference = IsFloorReferenced(runtimeOrigin)
+                    ? "quest_runtime_calibrated_floor"
+                    : "not_floor_referenced",
+                recording_start_unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                recording_start_mono_ns = MonotonicClock.Nanos(),
+                recenter_count_at_start = OVRPlugin.GetLocalTrackingSpaceRecenterCount(),
+                recenter_count_at_stop = OVRPlugin.GetLocalTrackingSpaceRecenterCount(),
+                recenter_events = new List<TrackingOriginRecenterEvent>(),
+            };
+        }
+
+        private void OnTrackingOriginRecentered()
+        {
+            if (!isRecording || trackingOriginSession == null)
+            {
+                return;
+            }
+
+            trackingOriginSession.recenter_events.Add(
+                new TrackingOriginRecenterEvent
+                {
+                    unix_time_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    mono_time_ns = MonotonicClock.Nanos(),
+                    recenter_count = OVRPlugin.GetLocalTrackingSpaceRecenterCount(),
+                    runtime_origin = OVRPlugin.GetTrackingOriginType().ToString(),
+                }
+            );
+        }
+
+        private void WriteTrackingOriginRecord(string sessionDirectoryName)
+        {
+            try
+            {
+                if (trackingOriginSession == null || string.IsNullOrEmpty(sessionDirectoryName))
+                {
+                    return;
+                }
+
+                trackingOriginSession.recording_stop_unix_ms =
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                trackingOriginSession.recording_stop_mono_ns = MonotonicClock.Nanos();
+                trackingOriginSession.runtime_origin_at_stop =
+                    OVRPlugin.GetTrackingOriginType().ToString();
+                trackingOriginSession.recenter_count_at_stop =
+                    OVRPlugin.GetLocalTrackingSpaceRecenterCount();
+
+                var sessionDir = Path.Join(
+                    Application.persistentDataPath,
+                    sessionDirectoryName
+                );
+                Directory.CreateDirectory(sessionDir);
+                File.WriteAllText(
+                    Path.Join(sessionDir, TrackingOriginFileName),
+                    JsonUtility.ToJson(trackingOriginSession, true)
+                );
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError(
+                    $"[{Constants.LOG_TAG}] Failed to write {TrackingOriginFileName}: {ex.Message}"
+                );
+            }
+            finally
+            {
+                trackingOriginSession = null;
+                UnsubscribeFromRecenterEvents();
+            }
+        }
+
+        private void TrySubscribeToRecenterEvents()
+        {
+            if (recenterEventSubscribed || OVRManager.display == null)
+            {
+                return;
+            }
+            OVRManager.display.RecenteredPose += OnTrackingOriginRecentered;
+            recenterEventSubscribed = true;
+        }
+
+        private void UnsubscribeFromRecenterEvents()
+        {
+            if (!recenterEventSubscribed || OVRManager.display == null)
+            {
+                return;
+            }
+            OVRManager.display.RecenteredPose -= OnTrackingOriginRecentered;
+            recenterEventSubscribed = false;
+        }
+
+        private static bool IsFloorReferenced(string origin)
+        {
+            return origin == "FloorLevel" || origin == "Stage";
+        }
+
+        [Serializable]
+        private sealed class TrackingOriginSession
+        {
+            public string schema = string.Empty;
+            public string configured_origin = string.Empty;
+            public string runtime_origin_at_start = string.Empty;
+            public string runtime_origin_at_stop = string.Empty;
+            public bool allow_recenter;
+            public string floor_height_reference = string.Empty;
+            public long recording_start_unix_ms;
+            public long recording_stop_unix_ms;
+            public long recording_start_mono_ns;
+            public long recording_stop_mono_ns;
+            public int recenter_count_at_start;
+            public int recenter_count_at_stop;
+            public List<TrackingOriginRecenterEvent> recenter_events = new();
+        }
+
+        [Serializable]
+        private sealed class TrackingOriginRecenterEvent
+        {
+            public long unix_time_ms;
+            public long mono_time_ns;
+            public int recenter_count;
+            public string runtime_origin = string.Empty;
         }
     }
 }

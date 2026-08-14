@@ -57,7 +57,7 @@ namespace RealityLog.Network
         private long cachedStorageTotal = 0;
         private volatile bool cachedIsRecording = false;
         private float cachedDuration = 0f;
-        private string cachedAppVersion = "1.2.0";
+        private string cachedAppVersion = "1.3.0";
         private float lastStorageRefresh = 0f;
         private float lastHeartbeat = 0f;
 
