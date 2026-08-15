@@ -57,7 +57,7 @@ namespace RealityLog.Network
         private long cachedStorageTotal = 0;
         private volatile bool cachedIsRecording = false;
         private float cachedDuration = 0f;
-        private string cachedAppVersion = "1.3.0";
+        private string cachedAppVersion = "1.4.2";
         private float lastStorageRefresh = 0f;
         private float lastHeartbeat = 0f;
 
@@ -804,10 +804,10 @@ namespace RealityLog.Network
         // silently returned 0 on threadpool threads on Quest 3 (Horizon OS 79). The wrapper
         // calls into UnityEngine internals that aren't safe off-main-thread.
         //
-        // The reliable path is a `Stopwatch` started once and thread-safe to read. It now lives
-        // in RealityLog.Common.MonotonicClock so the recording loggers stamp every row with the
-        // SAME counter this timesync endpoint measures — a host maps each sample to its own clock
-        // via host_time = mono_time_ns + measured_offset.
+        // The reliable path calls bionic clock_gettime(CLOCK_MONOTONIC) directly, without JNI or
+        // Unity/IL2CPP Stopwatch scaling. It lives in RealityLog.Common.MonotonicClock so the
+        // recording loggers stamp every row with the SAME counter this timesync endpoint measures
+        // — a host maps each sample to its own clock via the episode's affine clock fit.
         private static long MonotonicNanos() => MonotonicClock.Nanos();
 
         // ── Helpers ──

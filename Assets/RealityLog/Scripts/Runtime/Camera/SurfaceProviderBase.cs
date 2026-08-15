@@ -25,6 +25,14 @@ namespace RealityLog.Camera
         {
         }
 
+        /// <summary>
+        /// Stops accepting new frames without waiting for encoder finalization.
+        /// RecordingManager invokes this for every camera before finalizing either eye.
+        /// </summary>
+        public virtual void RequestStopRecordingSession()
+        {
+        }
+
         public virtual void StopRecordingSession()
         {
         }

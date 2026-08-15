@@ -14,8 +14,14 @@ namespace RealityLog.Camera
         private const string VIDEO_RECORDER_SURFACE_PROVIDER_CLASS_NAME = "com.samusynth.questcamera.io.VideoRecorderSurfaceProvider";
         private const string UPDATE_OUTPUT_FILE_METHOD_NAME = "updateOutputFile";
         private const string START_RECORDING_METHOD_NAME = "startRecording";
+        private const string REQUEST_STOP_RECORDING_METHOD_NAME = "requestStopRecording";
         private const string STOP_RECORDING_METHOD_NAME = "stopRecording";
+        private const string GET_SOURCE_FRAME_COUNT_METHOD_NAME = "getSourceFrameCount";
+        private const string GET_SOURCE_DROPPED_FRAME_COUNT_METHOD_NAME = "getSourceDroppedFrameCount";
+        private const string GET_SELECTED_FRAME_COUNT_METHOD_NAME = "getSelectedFrameCount";
         private const string CLOSE_METHOD_NAME = "close";
+        private const string CaptureContractVersion = "1.4.0";
+        private const string FrameTimestampsSchema = "openquest.camera_frame_timestamps/v2";
 
         [SerializeField] private string dataDirectoryName = string.Empty;
         [SerializeField] private string outputVideoFileName = "left_camera.mp4";
@@ -42,6 +48,9 @@ namespace RealityLog.Camera
         private bool isRecordingSessionActive;
         private bool waitingForCameraReopen;
         private Coroutine? delayedStartCoroutine;
+        private long sourceFrameCount;
+        private long sourceDroppedFrameCount;
+        private long selectedFrameCount;
 
         public long VideoStartUnixTimeMs { get; private set; }
 
@@ -67,12 +76,23 @@ namespace RealityLog.Camera
 
         public override AndroidJavaObject? GetJavaInstance(CameraMetadata metadata)
         {
-            Close();
-
             cameraMetadata = metadata;
             cameraSessionManager ??= GetComponent<CameraSessionManager>();
 
-            var size = metadata.sensor.pixelArraySize;
+            // CameraSessionManager may be recreated across an XR pause. Re-register
+            // the persistent Camera2-facing surface instead of destroying the active
+            // encoder and losing its episode metadata.
+            if (currentInstance != null)
+            {
+                return currentInstance;
+            }
+
+            var sensorSize = metadata.sensor.pixelArraySize;
+            var scale = maxResolutionHeight > 0
+                ? Mathf.Min(1f, maxResolutionHeight / (float)sensorSize.height)
+                : 1f;
+            var outputWidth = Mathf.Max(2, Mathf.RoundToInt(sensorSize.width * scale) & ~1);
+            var outputHeight = Mathf.Max(2, Mathf.RoundToInt(sensorSize.height * scale) & ~1);
             var outputFilePath = BuildVideoOutputPath();
             var frameTimestampFilePath = BuildFrameTimestampOutputPath();
 
@@ -80,8 +100,8 @@ namespace RealityLog.Camera
             {
                 currentInstance = new AndroidJavaObject(
                     VIDEO_RECORDER_SURFACE_PROVIDER_CLASS_NAME,
-                    size.width,
-                    size.height,
+                    outputWidth,
+                    outputHeight,
                     outputFilePath,
                     frameTimestampFilePath,
                     targetFrameRate,
@@ -92,7 +112,7 @@ namespace RealityLog.Camera
                     audioSamplingRate
                 );
 
-                Debug.Log($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider initialized ({size.width}x{size.height}, {targetFrameRate}fps, {targetBitrateMbps}Mbps, audio={enableAudio}).");
+                Debug.Log($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider initialized ({outputWidth}x{outputHeight} from {sensorSize.width}x{sensorSize.height}, {targetFrameRate}fps, {targetBitrateMbps}Mbps, audio={enableAudio}).");
             }
             catch (Exception ex)
             {
@@ -112,6 +132,9 @@ namespace RealityLog.Camera
         {
             VideoStartUnixTimeMs = 0;
             VideoStartMonoTimeNs = 0;
+            sourceFrameCount = 0;
+            sourceDroppedFrameCount = 0;
+            selectedFrameCount = 0;
 
             if (currentInstance == null)
             {
@@ -166,6 +189,23 @@ namespace RealityLog.Camera
         private const int MaxVideoFinalizeWaitMs = 3000;
         private const int VideoFinalizeCheckIntervalMs = 50;
 
+        public override void RequestStopRecordingSession()
+        {
+            if (currentInstance == null || !isRecordingSessionActive)
+            {
+                return;
+            }
+
+            try
+            {
+                currentInstance.Call(REQUEST_STOP_RECORDING_METHOD_NAME);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: requestStopRecording threw: {ex.Message}");
+            }
+        }
+
         public override void StopRecordingSession()
         {
             if (delayedStartCoroutine != null)
@@ -175,7 +215,17 @@ namespace RealityLog.Camera
             }
             waitingForCameraReopen = false;
 
-            if (currentInstance == null)
+            if (currentInstance == null || !isRecordingSessionActive)
+            {
+                return;
+            }
+
+            FinalizeRecordingSession(scheduleFinalizationPoll: true);
+        }
+
+        private void FinalizeRecordingSession(bool scheduleFinalizationPoll)
+        {
+            if (currentInstance == null || !isRecordingSessionActive)
             {
                 return;
             }
@@ -188,15 +238,20 @@ namespace RealityLog.Camera
             bool stopSucceeded = false;
             try
             {
+                currentInstance.Call(REQUEST_STOP_RECORDING_METHOD_NAME);
                 currentInstance.Call(STOP_RECORDING_METHOD_NAME);
                 stopSucceeded = true;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: stopRecording threw: {ex.Message}");
+                // AndroidJavaException.Message only contains the outer JNI wrapper.
+                // Preserve the Java cause/stack so a primary encoder failure is not
+                // mistaken for whichever finalization invariant observes it later.
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: stopRecording threw: {ex}");
             }
             finally
             {
+                ReadCaptureStats();
                 isRecordingSessionActive = false;
             }
 
@@ -209,7 +264,7 @@ namespace RealityLog.Camera
             // resolves to the root files directory, which is safe to truncate.
             dataDirectoryName = string.Empty;
 
-            if (stopSucceeded)
+            if (stopSucceeded && scheduleFinalizationPoll)
             {
                 IsFinalizingVideo = true;
                 Task.Run(() => PollVideoFinalization(videoPath));
@@ -340,7 +395,7 @@ namespace RealityLog.Camera
                 var timestampSource = cameraMetadata?.sensor?.timestampSource ?? "UNKNOWN";
 
                 var json = $"{{\n" +
-                    $"  \"capture_contract_version\": \"1.3.0\",\n" +
+                    $"  \"capture_contract_version\": \"{CaptureContractVersion}\",\n" +
                     $"  \"recording_start_unix_ms\": {VideoStartUnixTimeMs},\n" +
                     $"  \"recording_stop_unix_ms\": {stopUnixMs},\n" +
                     $"  \"recording_start_mono_ns\": {VideoStartMonoTimeNs},\n" +
@@ -349,9 +404,12 @@ namespace RealityLog.Camera
                     $"  \"gop_frames\": {targetFrameRate * iFrameIntervalSeconds},\n" +
                     $"  \"video_file\": \"{EscapeJson(outputVideoFileName)}\",\n" +
                     $"  \"frame_timestamps_file\": \"{EscapeJson(frameTimestampsFileName)}\",\n" +
-                    $"  \"frame_timestamps_schema\": \"openquest.camera_frame_timestamps/v1\",\n" +
+                    $"  \"frame_timestamps_schema\": \"{FrameTimestampsSchema}\",\n" +
                     $"  \"frame_timestamp_semantics\": \"sensor_exposure_start\",\n" +
                     $"  \"sensor_timestamp_source\": \"{EscapeJson(timestampSource)}\",\n" +
+                    $"  \"source_frame_count\": {sourceFrameCount},\n" +
+                    $"  \"source_dropped_frame_count\": {sourceDroppedFrameCount},\n" +
+                    $"  \"selected_frame_count\": {selectedFrameCount},\n" +
                     $"  \"audio_enabled\": {(enableAudio ? "true" : "false")},\n" +
                     $"  \"audio_bitrate\": {audioBitrate},\n" +
                     $"  \"audio_sampling_rate\": {audioSamplingRate}\n" +
@@ -372,6 +430,30 @@ namespace RealityLog.Camera
                 .Replace("\"", "\\\"")
                 .Replace("\r", "\\r")
                 .Replace("\n", "\\n");
+        }
+
+        private void ReadCaptureStats()
+        {
+            if (currentInstance == null)
+            {
+                return;
+            }
+
+            try
+            {
+                sourceFrameCount = currentInstance.Call<long>(GET_SOURCE_FRAME_COUNT_METHOD_NAME);
+                sourceDroppedFrameCount = currentInstance.Call<long>(
+                    GET_SOURCE_DROPPED_FRAME_COUNT_METHOD_NAME
+                );
+                selectedFrameCount = currentInstance.Call<long>(GET_SELECTED_FRAME_COUNT_METHOD_NAME);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: failed to read capture counters: {ex.Message}");
+                sourceFrameCount = -1;
+                sourceDroppedFrameCount = -1;
+                selectedFrameCount = -1;
+            }
         }
 
         private void WriteCameraMetadataFile()
@@ -412,22 +494,7 @@ namespace RealityLog.Camera
             {
                 if (isRecordingSessionActive)
                 {
-                    try
-                    {
-                        currentInstance.Call(STOP_RECORDING_METHOD_NAME);
-                    }
-                    catch (Exception stopEx)
-                    {
-                        Debug.LogException(stopEx);
-                    }
-                    finally
-                    {
-                        isRecordingSessionActive = false;
-                    }
-
-                    // Reset so the next GetJavaInstance() (called immediately after
-                    // Close() during camera reinit) won't point at the saved session.
-                    dataDirectoryName = string.Empty;
+                    FinalizeRecordingSession(scheduleFinalizationPoll: false);
                 }
                 currentInstance.Call(CLOSE_METHOD_NAME);
             }

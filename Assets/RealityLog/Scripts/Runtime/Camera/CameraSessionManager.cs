@@ -89,11 +89,9 @@ namespace RealityLog.Camera
                     resumeCoroutine = null;
                 }
 
-                // NOTE: Do NOT call StopRecordingSession() on providers here.
-                // RecordingManager owns the recording lifecycle and handles stopping
-                // via its own OnApplicationPause. Stopping here would cause a
-                // double-stop race where the camera surface is released before
-                // RecordingManager finalizes the recording.
+                // Release both Camera2 sessions symmetrically. The surface providers
+                // remain alive, so an active encoder is neither finalized nor pointed at
+                // a new output file; resume re-registers the same persistent surfaces.
                 Debug.Log($"[{Constants.LOG_TAG}] App pausing - closing camera session");
                 DestroyInstance();
             }
@@ -113,18 +111,10 @@ namespace RealityLog.Camera
         {
             Debug.Log($"[{Constants.LOG_TAG}] App resuming - waiting {RESUME_DELAY}s before reopening camera...");
             yield return new WaitForSeconds(RESUME_DELAY);
-            
+
             Debug.Log($"[{Constants.LOG_TAG}] Reopening camera session");
-            var cameraManagerJavaInstance = cameraPermissionManager.CameraManagerJavaInstance;
-            if (cameraManagerJavaInstance != null)
-            {
-                Instantiate(cameraManagerJavaInstance);
-            }
-            else
-            {
-                Debug.LogWarning($"[{Constants.LOG_TAG}] Cannot reopen camera -- CameraManager not available");
-            }
-            
+            ReopenSession();
+
             resumeCoroutine = null;
         }
 

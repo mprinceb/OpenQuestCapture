@@ -117,7 +117,7 @@ Example structure:
 * Files: `left_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
 * Camera videos are intentionally video-only. A MediaCodec/EGL frame-pacing path samples the latest camera texture onto a constant 30 FPS presentation timeline.
-* `left_camera_timestamps.csv` and `right_camera_timestamps.csv` contain one row per encoded frame. `sensor_timestamp_ns` is the Camera2 exposure-start `SENSOR_TIMESTAMP`; duplicated output frames repeat the same source timestamp and set `is_duplicate=true`.
+* `left_camera_timestamps.csv` and `right_camera_timestamps.csv` contain one row per encoded frame. `sensor_timestamp_ns` is the Camera2 exposure-start `SENSOR_TIMESTAMP`. Contract 1.4 selects only fresh exposures, joins every row to its `TotalCaptureResult`, and fails finalization instead of emitting a duplicate or unknown capture metadata.
 * Intended for long-duration collection where storage efficiency is critical
 
 Each stream writes its own sidecar metadata — `left_camera_metadata.json` for the left stream,
@@ -129,23 +129,27 @@ Each stream writes its own sidecar metadata — `left_camera_metadata.json` for 
   "recording_stop_unix_ms": 1753267754456,
   "recording_start_mono_ns": 84213000000,
   "recording_stop_mono_ns": 144546000000,
-  "capture_contract_version": "1.3.0",
+  "capture_contract_version": "1.4.0",
   "configured_fps": 30,
   "gop_frames": 30,
   "video_file": "right_camera.mp4",
   "frame_timestamps_file": "right_camera_timestamps.csv",
-  "frame_timestamps_schema": "openquest.camera_frame_timestamps/v1",
+  "frame_timestamps_schema": "openquest.camera_frame_timestamps/v2",
   "frame_timestamp_semantics": "sensor_exposure_start",
   "sensor_timestamp_source": "UNKNOWN",
+  "source_frame_count": 3015,
+  "source_dropped_frame_count": 0,
+  "selected_frame_count": 1809,
   "audio_enabled": false,
   "audio_bitrate": 128000,
   "audio_sampling_rate": 44100
 }
 ```
 
-`recording_start_mono_ns` is on the same monotonic clock as the CSVs' `mono_time_ns` column
-and the `POST /api/timesync/ping` endpoint, so the two videos and every logged sample map
-onto a host clock with `host_time = mono_time_ns + measured_offset`.
+`recording_start_mono_ns` is read directly from Android
+`clock_gettime(CLOCK_MONOTONIC)`, the same counter used by the CSVs' `mono_time_ns` column
+and the `POST /api/timesync/ping` endpoint. The two videos and every logged sample therefore
+map onto a host clock through the episode's measured affine clock fit.
 
 For frame-accurate alignment, consumers use each row's `sensor_timestamp_ns`, not the
 recording-start estimate or MP4 packet delivery time. Horizon OS reports the passthrough

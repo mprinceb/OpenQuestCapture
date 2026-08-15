@@ -258,6 +258,13 @@ namespace RealityLog
             // Step 1: Stop capture loop first
             captureTimer.StopCapture();
 
+            // Freeze both camera exposure timelines before either encoder performs
+            // synchronous drain/finalization. Otherwise the second eye keeps recording
+            // while the first eye stops and their delivered frame counts diverge.
+            foreach (var provider in cameraProviders)
+            {
+                provider.RequestStopRecordingSession();
+            }
             foreach (var provider in cameraProviders)
             {
                 provider.StopRecordingSession();
@@ -375,6 +382,8 @@ namespace RealityLog
 
                 captureTimer.StopCapture();
 
+                foreach (var provider in cameraProviders)
+                    provider.RequestStopRecordingSession();
                 foreach (var provider in cameraProviders)
                     provider.StopRecordingSession();
 
