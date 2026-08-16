@@ -57,7 +57,7 @@ namespace RealityLog.Network
         private long cachedStorageTotal = 0;
         private volatile bool cachedIsRecording = false;
         private float cachedDuration = 0f;
-        private string cachedAppVersion = "1.4.2";
+        private string cachedAppVersion = "";
         private float lastStorageRefresh = 0f;
         private float lastHeartbeat = 0f;
 
@@ -69,6 +69,7 @@ namespace RealityLog.Network
         private void Awake()
         {
             appStartTime = Time.realtimeSinceStartup;
+            cachedAppVersion = Application.version;
 
             // Auto-discover dependencies if not assigned
             recordingManager ??= FindFirstObjectByType<RecordingManager>();

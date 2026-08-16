@@ -19,8 +19,12 @@ namespace RealityLog.Camera
         private const string GET_SOURCE_FRAME_COUNT_METHOD_NAME = "getSourceFrameCount";
         private const string GET_SOURCE_DROPPED_FRAME_COUNT_METHOD_NAME = "getSourceDroppedFrameCount";
         private const string GET_SELECTED_FRAME_COUNT_METHOD_NAME = "getSelectedFrameCount";
+        private const string GET_CAPTURE_REPORT_JSON_METHOD_NAME = "getCaptureReportJson";
         private const string CLOSE_METHOD_NAME = "close";
-        private const string CaptureContractVersion = "1.4.0";
+        // 1.4.1: exposure_time_ns / capture_frame_number may be -1 (unknown) per row,
+        // metadata carries capture_report counters and capture_error; the recorder
+        // never truncates an eye for sidecar bookkeeping.
+        private const string CaptureContractVersion = "1.4.1";
         private const string FrameTimestampsSchema = "openquest.camera_frame_timestamps/v2";
 
         [SerializeField] private string dataDirectoryName = string.Empty;
@@ -51,6 +55,8 @@ namespace RealityLog.Camera
         private long sourceFrameCount;
         private long sourceDroppedFrameCount;
         private long selectedFrameCount;
+        private string captureReportJson = "{}";
+        private string? captureError;
 
         public long VideoStartUnixTimeMs { get; private set; }
 
@@ -135,6 +141,8 @@ namespace RealityLog.Camera
             sourceFrameCount = 0;
             sourceDroppedFrameCount = 0;
             selectedFrameCount = 0;
+            captureReportJson = "{}";
+            captureError = null;
 
             if (currentInstance == null)
             {
@@ -247,6 +255,9 @@ namespace RealityLog.Camera
                 // AndroidJavaException.Message only contains the outer JNI wrapper.
                 // Preserve the Java cause/stack so a primary encoder failure is not
                 // mistaken for whichever finalization invariant observes it later.
+                // The metadata sidecar records it so the pod fails closed on the
+                // real cause instead of a downstream count mismatch.
+                captureError = ex.ToString();
                 Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: stopRecording threw: {ex}");
             }
             finally
@@ -410,6 +421,8 @@ namespace RealityLog.Camera
                     $"  \"source_frame_count\": {sourceFrameCount},\n" +
                     $"  \"source_dropped_frame_count\": {sourceDroppedFrameCount},\n" +
                     $"  \"selected_frame_count\": {selectedFrameCount},\n" +
+                    $"  \"capture_report\": {captureReportJson},\n" +
+                    $"  \"capture_error\": {(captureError == null ? "null" : "\"" + EscapeJson(captureError) + "\"")},\n" +
                     $"  \"audio_enabled\": {(enableAudio ? "true" : "false")},\n" +
                     $"  \"audio_bitrate\": {audioBitrate},\n" +
                     $"  \"audio_sampling_rate\": {audioSamplingRate}\n" +
@@ -446,6 +459,7 @@ namespace RealityLog.Camera
                     GET_SOURCE_DROPPED_FRAME_COUNT_METHOD_NAME
                 );
                 selectedFrameCount = currentInstance.Call<long>(GET_SELECTED_FRAME_COUNT_METHOD_NAME);
+                captureReportJson = currentInstance.Call<string>(GET_CAPTURE_REPORT_JSON_METHOD_NAME);
             }
             catch (Exception ex)
             {
@@ -453,6 +467,7 @@ namespace RealityLog.Camera
                 sourceFrameCount = -1;
                 sourceDroppedFrameCount = -1;
                 selectedFrameCount = -1;
+                captureReportJson = "{}";
             }
         }
 
