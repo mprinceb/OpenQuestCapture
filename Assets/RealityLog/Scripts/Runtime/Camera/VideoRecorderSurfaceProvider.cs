@@ -24,7 +24,12 @@ namespace RealityLog.Camera
         // 1.4.1: exposure_time_ns / capture_frame_number may be -1 (unknown) per row,
         // metadata carries capture_report counters and capture_error; the recorder
         // never truncates an eye for sidecar bookkeeping.
-        private const string CaptureContractVersion = "1.4.1";
+        // 1.4.2: Camera2 is requested at [60,60] (the Quest 3S HAL answers with a
+        // 50 Hz lattice shared by both cameras) and the recorder selects the first
+        // exposure in each absolute 1/30 s bin of the sensor clock, so both eyes
+        // encode the same instants; capture_report gains requested_fps_range,
+        // observed_source_fps, selection_mode and selection_grid_ns.
+        private const string CaptureContractVersion = "1.4.2";
         private const string FrameTimestampsSchema = "openquest.camera_frame_timestamps/v2";
 
         [SerializeField] private string dataDirectoryName = string.Empty;

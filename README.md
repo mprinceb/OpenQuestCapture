@@ -116,12 +116,13 @@ Example structure:
 
 * Files: `left_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
-* Camera videos are intentionally video-only. A MediaCodec/EGL path encodes each fresh camera exposure (pass-through when the source already runs at ~30 Hz, otherwise the first fresh exposure at or after each 1/30 s target) and writes an exact n/30 presentation timeline into the MP4.
-* `left_camera_timestamps.csv` and `right_camera_timestamps.csv` contain one row per encoded frame. `sensor_timestamp_ns` is the Camera2 exposure-start `SENSOR_TIMESTAMP` (the SurfaceTexture timestamp of the frame that was encoded, so it is never missing). `exposure_time_ns` and `capture_frame_number` are joined from the frame's `TotalCaptureResult`; capture contract 1.4.1 writes `-1` when the HAL omitted the exposure duration (Quest 3S does so sporadically) or never delivered the result, and counts both in the metadata `capture_report`. Bookkeeping never truncates an eye — only an encoder/EGL failure ends a recording, and that is reported verbatim as `capture_error`.
+* Camera videos are intentionally video-only. The app requests Camera2 `CONTROL_AE_TARGET_FPS_RANGE` `[60,60]`; the Quest 3S HAL answers with 50 fps on one 20 ms lattice shared by both cameras, whose `SENSOR_TIMESTAMP`s are identical (at `[30,30]` it decimates that lattice independently per camera, so paired frames landed 20 ms apart about half the time). A MediaCodec/EGL path selects the first fresh exposure in each absolute 33.33 ms bin of the sensor clock, so both eyes deliver the same instants — 3 of every 5 lattice slots, gaps of 20/40/40 ms, mean 30 Hz — never manufactures a duplicate, and writes an exact n/30 presentation timeline into the MP4. A source already at ≤35 Hz passes through. Frame stamps remain `SENSOR_TIMESTAMP` (start of exposure).
+* `left_camera_timestamps.csv` and `right_camera_timestamps.csv` contain one row per encoded frame. `sensor_timestamp_ns` is the Camera2 exposure-start `SENSOR_TIMESTAMP` (the SurfaceTexture timestamp of the frame that was encoded, so it is never missing). `exposure_time_ns` and `capture_frame_number` are joined from the frame's `TotalCaptureResult`; since capture contract 1.4.1 the recorder writes `-1` when the HAL omitted the exposure duration (Quest 3S does so sporadically) or never delivered the result, and counts both in the metadata `capture_report`. Bookkeeping never truncates an eye — only an encoder/EGL failure ends a recording, and that is reported verbatim as `capture_error`.
 * Intended for long-duration collection where storage efficiency is critical
 
 Each stream writes its own sidecar metadata — `left_camera_metadata.json` for the left stream,
-`right_camera_metadata.json` for the right — holding that stream's start/stop stamps:
+`right_camera_metadata.json` for the right — holding that stream's start/stop stamps
+(example values):
 
 ```json
 {
@@ -129,7 +130,7 @@ Each stream writes its own sidecar metadata — `left_camera_metadata.json` for 
   "recording_stop_unix_ms": 1753267754456,
   "recording_start_mono_ns": 84213000000,
   "recording_stop_mono_ns": 144546000000,
-  "capture_contract_version": "1.4.1",
+  "capture_contract_version": "1.4.2",
   "configured_fps": 30,
   "gop_frames": 30,
   "video_file": "right_camera.mp4",
@@ -137,10 +138,10 @@ Each stream writes its own sidecar metadata — `left_camera_metadata.json` for 
   "frame_timestamps_schema": "openquest.camera_frame_timestamps/v2",
   "frame_timestamp_semantics": "sensor_exposure_start",
   "sensor_timestamp_source": "UNKNOWN",
-  "source_frame_count": 3702,
+  "source_frame_count": 3017,
   "source_dropped_frame_count": 0,
-  "selected_frame_count": 3702,
-  "capture_report": {"exposure_missing_frame_count": 1, "capture_result_missing_frame_count": 0, "source_sequence_error_count": 0, "timestamp_regression_count": 0, "gop_violation_count": 0, "selected_mean_fps": 29.8555, "selected_max_gap_ns": 40007000},
+  "selected_frame_count": 1810,
+  "capture_report": {"requested_fps_range": [60, 60], "observed_source_fps": 50.0000, "selection_mode": "absolute_grid", "selection_grid_ns": 33333333, "exposure_missing_frame_count": 1, "capture_result_missing_frame_count": 0, "source_sequence_error_count": 0, "timestamp_regression_count": 0, "gop_violation_count": 0, "selected_mean_fps": 30.0000, "selected_max_gap_ns": 40000000},
   "capture_error": null,
   "audio_enabled": false,
   "audio_bitrate": 128000,
