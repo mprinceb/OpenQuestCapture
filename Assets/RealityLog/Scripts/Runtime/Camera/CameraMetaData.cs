@@ -1,6 +1,7 @@
 # nullable enable
 
 using System;
+using System.Collections.Generic;
 
 namespace RealityLog.Camera
 {
@@ -16,8 +17,27 @@ namespace RealityLog.Camera
         public Intrinsics intrinsics = default!;
         public float[] distortion = new float[0];
         public Sensor sensor = default!;
+        /// <summary>
+        /// The SurfaceTexture output sizes the camera lists (Camera2
+        /// SCALER_STREAM_CONFIGURATION_MAP). Empty when the library reported none: the
+        /// camera service silently rounds a SurfaceTexture asked for an unlisted size,
+        /// so a recorder may only request a size from this list.
+        /// </summary>
+        public List<IntSize> outputSizes = new List<IntSize>();
 
         public bool IsPassthroughCamera => cameraSource == 0;
+
+        public bool ListsOutputSize(int width, int height)
+        {
+            foreach (var size in outputSizes)
+            {
+                if (size.width == width && size.height == height)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         public CameraPosition CameraPosition => cameraPositionId switch
         {
@@ -29,6 +49,15 @@ namespace RealityLog.Camera
         public override string ToString()
         {
             string FormatArray<T>(T[] array) => array.Length == 0 ? "[]" : "[" + string.Join(", ", array) + "]";
+            string FormatSizes(List<IntSize> sizes)
+            {
+                var parts = new string[sizes.Count];
+                for (var i = 0; i < sizes.Count; i++)
+                {
+                    parts[i] = $"{sizes[i].width}x{sizes[i].height}";
+                }
+                return sizes.Count == 0 ? "[]" : "[" + string.Join(", ", parts) + "]";
+            }
 
             return $"CameraMetadata:\n" +
                 $"- cameraId: {cameraId}\n" +
@@ -49,7 +78,8 @@ namespace RealityLog.Camera
                 $"    - pixelArraySize: ({sensor.pixelArraySize.width}, {sensor.pixelArraySize.height})\n" +
                 $"    - preCorrectionActiveArraySize: (left: {sensor.preCorrectionActiveArraySize.left}, top: {sensor.preCorrectionActiveArraySize.top}, right: {sensor.preCorrectionActiveArraySize.right}, bottom: {sensor.preCorrectionActiveArraySize.bottom})\n" +
                 $"    - activeArraySize: (left: {sensor.activeArraySize.left}, top: {sensor.activeArraySize.top}, right: {sensor.activeArraySize.right}, bottom: {sensor.activeArraySize.bottom})\n" +
-                $"    - timestampSource: {sensor.timestampSource}";
+                $"    - timestampSource: {sensor.timestampSource}\n" +
+                $"- outputSizes: {FormatSizes(outputSizes)}";
         }
     }
 

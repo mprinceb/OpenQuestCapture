@@ -111,28 +111,38 @@ Example structure:
 
 * Obtained via Android Camera2 API
 * Includes pose, intrinsics (fx, fy, cx, cy), sensor info, etc.
+* Since capture contract 1.4.3, `outputSizes` lists the camera's SurfaceTexture output sizes (Camera2 `SCALER_STREAM_CONFIGURATION_MAP`). The intrinsics are calibrated on the sensor `pixelArraySize` (1280×1280 on the Quest 3S); the recorder only ever asks Camera2 for a size from this list.
 
 ### Camera Video (MP4)
 
 * Files: `left_camera.mp4` (left camera), `right_camera.mp4` (right camera)
 * Codec: H.264 inside MP4 container
+* Geometry (capture contract 1.4.3, written by OpenQuestCapture 1.4.5 — app version and contract version are different numbers: app 1.4.5 ↔ contract 1.4.3, app 1.4.4 ↔ contract 1.4.2, app 1.4.3 ↔ contract 1.4.1): the recorder asks Camera2 for the sensor's native listed stream — the `pixelArraySize`, 1280×1280 on the Quest 3S — and encodes it at 720×720, an isotropic resample of the whole array (`fx, fy, cx, cy` of the MP4 are 720/1280 of the sensor calibration; no crop, no stretch). Before contract 1.4.3 the recorder asked for 720×720, a size the passthrough camera does not list; the camera service silently rounded that to 720×576, the virtual camera centre-cropped its 1280×1280 source to 5:4 to fill it, and the recorder stretched the result square — so those MP4s show a 5:4 slice of the field of view stretched to a square, and nothing in the sidecar recorded it. OpenQuestCapture 1.4.5 (capture contract 1.4.3) refuses to start (the start request fails with the reason; nothing is written) when the requested source size is not in the camera's listed `outputSizes` or the encoder output does not keep its aspect, and its metadata states the four geometry keys below so a consumer can check what was delivered instead of assuming it.
 * Camera videos are intentionally video-only. The app requests Camera2 `CONTROL_AE_TARGET_FPS_RANGE` `[60,60]`; the Quest 3S HAL answers with 50 fps on one 20 ms lattice shared by both cameras, whose `SENSOR_TIMESTAMP`s are identical (at `[30,30]` it decimates that lattice independently per camera, so paired frames landed 20 ms apart about half the time). A MediaCodec/EGL path selects the first fresh exposure in each absolute 33.33 ms bin of the sensor clock, so both eyes deliver the same instants — 3 of every 5 lattice slots, gaps of 20/40/40 ms, mean 30 Hz — never manufactures a duplicate, and writes an exact n/30 presentation timeline into the MP4. A source already at ≤35 Hz passes through. Frame stamps remain `SENSOR_TIMESTAMP` (start of exposure).
 * `left_camera_timestamps.csv` and `right_camera_timestamps.csv` contain one row per encoded frame. `sensor_timestamp_ns` is the Camera2 exposure-start `SENSOR_TIMESTAMP` (the SurfaceTexture timestamp of the frame that was encoded, so it is never missing). `exposure_time_ns` and `capture_frame_number` are joined from the frame's `TotalCaptureResult`; since capture contract 1.4.1 the recorder writes `-1` when the HAL omitted the exposure duration (Quest 3S does so sporadically) or never delivered the result, and counts both in the metadata `capture_report`. Bookkeeping never truncates an eye — only an encoder/EGL failure ends a recording, and that is reported verbatim as `capture_error`.
 * Intended for long-duration collection where storage efficiency is critical
 
 Each stream writes its own sidecar metadata — `left_camera_metadata.json` for the left stream,
-`right_camera_metadata.json` for the right — holding that stream's start/stop stamps
-(example values):
+`right_camera_metadata.json` for the right — holding that stream's start/stop stamps and, since
+capture contract 1.4.3, its stream geometry: `requested_stream_size` (what Camera2 was asked
+for), `source_stream_size` (the SurfaceTexture default buffer size — the same value by
+construction, written so the sidecar states it), `output_size` (the encoder, i.e. the MP4) and
+`texture_transform` (the first `SurfaceTexture.getTransformMatrix()` the recorder saw, 16
+floats column-major, or `null` if no frame arrived) (example values):
 
 ```json
 {
+  "capture_contract_version": "1.4.3",
   "recording_start_unix_ms": 1753267694123,
   "recording_stop_unix_ms": 1753267754456,
   "recording_start_mono_ns": 84213000000,
   "recording_stop_mono_ns": 144546000000,
-  "capture_contract_version": "1.4.2",
   "configured_fps": 30,
   "gop_frames": 30,
+  "requested_stream_size": {"width": 1280, "height": 1280},
+  "source_stream_size": {"width": 1280, "height": 1280},
+  "output_size": {"width": 720, "height": 720},
+  "texture_transform": [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
   "video_file": "right_camera.mp4",
   "frame_timestamps_file": "right_camera_timestamps.csv",
   "frame_timestamps_schema": "openquest.camera_frame_timestamps/v2",

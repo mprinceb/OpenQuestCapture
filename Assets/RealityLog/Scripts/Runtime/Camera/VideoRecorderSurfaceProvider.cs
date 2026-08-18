@@ -20,6 +20,7 @@ namespace RealityLog.Camera
         private const string GET_SOURCE_DROPPED_FRAME_COUNT_METHOD_NAME = "getSourceDroppedFrameCount";
         private const string GET_SELECTED_FRAME_COUNT_METHOD_NAME = "getSelectedFrameCount";
         private const string GET_CAPTURE_REPORT_JSON_METHOD_NAME = "getCaptureReportJson";
+        private const string GET_STREAM_GEOMETRY_JSON_METHOD_NAME = "getStreamGeometryJson";
         private const string CLOSE_METHOD_NAME = "close";
         // 1.4.1: exposure_time_ns / capture_frame_number may be -1 (unknown) per row,
         // metadata carries capture_report counters and capture_error; the recorder
@@ -29,8 +30,19 @@ namespace RealityLog.Camera
         // exposure in each absolute 1/30 s bin of the sensor clock, so both eyes
         // encode the same instants; capture_report gains requested_fps_range,
         // observed_source_fps, selection_mode and selection_grid_ns.
-        private const string CaptureContractVersion = "1.4.2";
+        // 1.4.3: the recorder asks Camera2 for the native listed pixel-array stream
+        // (1280x1280 on the Quest 3S) instead of an unlisted 720x720 that the camera
+        // service rounded to 720x576 (a 5:4 centre crop stretched square), refuses
+        // to start when the requested size is not in the camera's listed output
+        // sizes or the encoder aspect differs, and states requested_stream_size,
+        // source_stream_size, output_size and texture_transform in the metadata;
+        // the encoder output is an isotropic resample of the whole array.
+        private const string CaptureContractVersion = "1.4.3";
         private const string FrameTimestampsSchema = "openquest.camera_frame_timestamps/v2";
+        // The four 1.4.3 geometry keys when no recorder exists to state them.
+        private const string NoStreamGeometryJson =
+            "{\"requested_stream_size\":null,\"source_stream_size\":null," +
+            "\"output_size\":null,\"texture_transform\":null}";
 
         [SerializeField] private string dataDirectoryName = string.Empty;
         [SerializeField] private string outputVideoFileName = "left_camera.mp4";
@@ -42,7 +54,11 @@ namespace RealityLog.Camera
         [SerializeField] private int targetFrameRate = 30;
         [SerializeField] private int targetBitrateMbps = 4;
         [SerializeField] private int iFrameIntervalSeconds = 1;
-        [SerializeField] private int maxResolutionHeight = 720;
+        // Encoder output size. The Camera2 source stream is always the sensor's
+        // pixel array (the native listed stream); the output must share its aspect,
+        // so the encoder is an isotropic resample of the whole array.
+        [SerializeField] private int outputWidth = 720;
+        [SerializeField] private int outputHeight = 720;
         [SerializeField] private bool useHevc = true;
         [Header("Audio")]
         [SerializeField] private bool enableAudio = false;
@@ -61,9 +77,22 @@ namespace RealityLog.Camera
         private long sourceDroppedFrameCount;
         private long selectedFrameCount;
         private string captureReportJson = "{}";
+        private string streamGeometryJson = NoStreamGeometryJson;
         private string? captureError;
+        // Why this eye cannot record at all (unlisted stream size, aspect mismatch,
+        // recorder construction failure). Set when the camera opens, kept until the
+        // camera is reopened with an acceptable configuration; RecordingManager
+        // refuses to start a session while it is set, and any session that is
+        // prepared regardless writes it as capture_error.
+        private string? startRefusal;
 
         public long VideoStartUnixTimeMs { get; private set; }
+
+        /// <summary>
+        /// Non-null when this eye cannot record: the reason, verbatim. A session must
+        /// not start while any video provider carries one.
+        /// </summary>
+        public string? StartRefusal => startRefusal;
 
         /// <summary>
         /// Start of this stream on the shared monotonic clock (see
@@ -98,12 +127,19 @@ namespace RealityLog.Camera
                 return currentInstance;
             }
 
-            var sensorSize = metadata.sensor.pixelArraySize;
-            var scale = maxResolutionHeight > 0
-                ? Mathf.Min(1f, maxResolutionHeight / (float)sensorSize.height)
-                : 1f;
-            var outputWidth = Mathf.Max(2, Mathf.RoundToInt(sensorSize.width * scale) & ~1);
-            var outputHeight = Mathf.Max(2, Mathf.RoundToInt(sensorSize.height * scale) & ~1);
+            // The Camera2 stream is the sensor's pixel array — the native stream the
+            // camera lists. The camera service silently rounds a SurfaceTexture asked
+            // for an unlisted size to its nearest listed one and the virtual camera
+            // then crops to fill it, so an unlisted request is refused, not rounded.
+            var sourceSize = metadata.sensor.pixelArraySize;
+            var refusal = RefuseStreamGeometry(metadata, sourceSize);
+            if (refusal != null)
+            {
+                startRefusal = refusal;
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider ({outputVideoFileName}) refuses to record: {refusal}");
+                return null;
+            }
+
             var outputFilePath = BuildVideoOutputPath();
             var frameTimestampFilePath = BuildFrameTimestampOutputPath();
 
@@ -111,6 +147,8 @@ namespace RealityLog.Camera
             {
                 currentInstance = new AndroidJavaObject(
                     VIDEO_RECORDER_SURFACE_PROVIDER_CLASS_NAME,
+                    sourceSize.width,
+                    sourceSize.height,
                     outputWidth,
                     outputHeight,
                     outputFilePath,
@@ -122,16 +160,49 @@ namespace RealityLog.Camera
                     audioBitrate,
                     audioSamplingRate
                 );
+                startRefusal = null;
 
-                Debug.Log($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider initialized ({outputWidth}x{outputHeight} from {sensorSize.width}x{sensorSize.height}, {targetFrameRate}fps, {targetBitrateMbps}Mbps, audio={enableAudio}).");
+                Debug.Log($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider initialized ({sourceSize.width}x{sourceSize.height} source -> {outputWidth}x{outputHeight} output, {targetFrameRate}fps, {targetBitrateMbps}Mbps, audio={enableAudio}).");
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                // No recorder means no head video: the same refusal as a bad geometry,
+                // with the Java cause verbatim.
+                startRefusal = $"recorder could not be created: {ex}";
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider ({outputVideoFileName}) refuses to record: {startRefusal}");
                 currentInstance = null;
             }
 
             return currentInstance;
+        }
+
+        /// <summary>
+        /// The reason the configured stream geometry cannot be recorded, or null when
+        /// the source is a listed Camera2 output size and the encoder keeps its aspect.
+        /// </summary>
+        private string? RefuseStreamGeometry(CameraMetadata metadata, IntSize sourceSize)
+        {
+            if (sourceSize.width <= 0 || sourceSize.height <= 0)
+            {
+                return $"pixelArraySize {sourceSize.width}x{sourceSize.height} is not a stream size";
+            }
+            if (metadata.outputSizes == null || metadata.outputSizes.Count == 0)
+            {
+                return $"camera {metadata.cameraId} characteristics list no SurfaceTexture output sizes, so a {sourceSize.width}x{sourceSize.height} request cannot be verified against the camera";
+            }
+            if (!metadata.ListsOutputSize(sourceSize.width, sourceSize.height))
+            {
+                return $"camera {metadata.cameraId} does not list {sourceSize.width}x{sourceSize.height} among its SurfaceTexture output sizes (the camera service would round it)";
+            }
+            if (outputWidth <= 0 || outputHeight <= 0 || outputWidth % 2 != 0 || outputHeight % 2 != 0)
+            {
+                return $"encoder output {outputWidth}x{outputHeight} must be positive and even";
+            }
+            if ((long)outputWidth * sourceSize.height != (long)outputHeight * sourceSize.width)
+            {
+                return $"encoder output {outputWidth}x{outputHeight} does not keep the {sourceSize.width}x{sourceSize.height} source aspect, so the video would be stretched";
+            }
+            return null;
         }
 
         public override void SetDataDirectoryName(string directoryName)
@@ -147,10 +218,21 @@ namespace RealityLog.Camera
             sourceDroppedFrameCount = 0;
             selectedFrameCount = 0;
             captureReportJson = "{}";
+            streamGeometryJson = NoStreamGeometryJson;
             captureError = null;
 
             if (currentInstance == null)
             {
+                if (startRefusal != null)
+                {
+                    // RecordingManager refuses to start while StartRefusal is set; a
+                    // session prepared regardless records the refusal the way an
+                    // encoder failure is recorded, so the pod fails closed on it.
+                    captureError = startRefusal;
+                    Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider ({outputVideoFileName}) prepared without a recorder: {startRefusal}");
+                    WriteCameraMetadataFile();
+                    WriteVideoMetadata(dataDirectoryName);
+                }
                 return;
             }
 
@@ -418,6 +500,9 @@ namespace RealityLog.Camera
                     $"  \"recording_stop_mono_ns\": {stopMonoNs},\n" +
                     $"  \"configured_fps\": {targetFrameRate},\n" +
                     $"  \"gop_frames\": {targetFrameRate * iFrameIntervalSeconds},\n" +
+                    // requested_stream_size, source_stream_size, output_size and
+                    // texture_transform, stated by the recorder (1.4.3).
+                    $"  {StreamGeometryMembers(streamGeometryJson)},\n" +
                     $"  \"video_file\": \"{EscapeJson(outputVideoFileName)}\",\n" +
                     $"  \"frame_timestamps_file\": \"{EscapeJson(frameTimestampsFileName)}\",\n" +
                     $"  \"frame_timestamps_schema\": \"{FrameTimestampsSchema}\",\n" +
@@ -439,6 +524,21 @@ namespace RealityLog.Camera
             {
                 Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider - Failed to write video metadata: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// The members of the recorder's stream-geometry JSON object, for splicing as
+        /// top-level keys of the metadata JSON.
+        /// </summary>
+        private static string StreamGeometryMembers(string geometryJson)
+        {
+            var trimmed = geometryJson.Trim();
+            if (trimmed.Length < 2 || trimmed[0] != '{' || trimmed[trimmed.Length - 1] != '}')
+            {
+                Debug.LogError($"[{Constants.LOG_TAG}] VideoRecorderSurfaceProvider: stream geometry is not a JSON object: {geometryJson}");
+                trimmed = NoStreamGeometryJson;
+            }
+            return trimmed.Substring(1, trimmed.Length - 2);
         }
 
         private static string EscapeJson(string value)
@@ -465,6 +565,7 @@ namespace RealityLog.Camera
                 );
                 selectedFrameCount = currentInstance.Call<long>(GET_SELECTED_FRAME_COUNT_METHOD_NAME);
                 captureReportJson = currentInstance.Call<string>(GET_CAPTURE_REPORT_JSON_METHOD_NAME);
+                streamGeometryJson = currentInstance.Call<string>(GET_STREAM_GEOMETRY_JSON_METHOD_NAME);
             }
             catch (Exception ex)
             {
@@ -473,6 +574,7 @@ namespace RealityLog.Camera
                 sourceDroppedFrameCount = -1;
                 selectedFrameCount = -1;
                 captureReportJson = "{}";
+                streamGeometryJson = NoStreamGeometryJson;
             }
         }
 

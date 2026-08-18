@@ -114,7 +114,12 @@ namespace RealityLog
         }
 
         /// <summary>
-        /// Starts recording from all subsystems in the proper order.
+        /// Starts recording from all subsystems in the proper order. Throws
+        /// <see cref="InvalidOperationException"/> — before any subsystem starts or a
+        /// session directory exists — when a video provider cannot record its eye
+        /// (<see cref="VideoRecorderSurfaceProvider.StartRefusal"/>): a session must
+        /// not start without head video, and every remote start path reports the
+        /// exception's message to its caller.
         /// </summary>
         public void StartRecording()
         {
@@ -122,6 +127,19 @@ namespace RealityLog
             {
                 Debug.LogWarning($"[{Constants.LOG_TAG}] RecordingManager: Already recording!");
                 return;
+            }
+
+            foreach (var provider in cameraProviders)
+            {
+                if (provider is VideoRecorderSurfaceProvider videoProvider
+                    && videoProvider.StartRefusal is string refusal)
+                {
+                    var message =
+                        $"RecordingManager: refusing to start — {videoProvider.OutputVideoFileName} " +
+                        $"cannot be recorded: {refusal}";
+                    Debug.LogError($"[{Constants.LOG_TAG}] {message}");
+                    throw new InvalidOperationException(message);
+                }
             }
 
             // Generate session directory name if needed

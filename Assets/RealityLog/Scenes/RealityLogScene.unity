@@ -7010,7 +7010,8 @@ MonoBehaviour:
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1
-  maxResolutionHeight: 720
+  outputWidth: 720
+  outputHeight: 720
   useHevc: 1
   enableAudio: 0
   audioBitrate: 128000
@@ -7330,7 +7331,8 @@ MonoBehaviour:
   targetFrameRate: 30
   targetBitrateMbps: 4
   iFrameIntervalSeconds: 1
-  maxResolutionHeight: 720
+  outputWidth: 720
+  outputHeight: 720
   useHevc: 1
   enableAudio: 0
   audioBitrate: 128000
